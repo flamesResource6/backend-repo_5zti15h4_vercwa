@@ -3,6 +3,7 @@ from typing import Literal, Dict, Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from urllib.parse import quote_plus
 
 app = FastAPI()
 
@@ -89,7 +90,7 @@ def test_database():
     return response
 
 
-# -------- Content Generation Utilities (rule-based, no external APIs) -------- #
+# -------- Content Generation Utilities (now with AI image URLs) -------- #
 
 def _apply_tone(prefix: str, tone: str) -> str:
     tone_map: Dict[str, str] = {
@@ -118,12 +119,15 @@ def _keywords_from_idea(idea: str) -> list[str]:
     return uniq[:10]
 
 
-def _placehold(width: int, height: int, text: str) -> str:
-    # Use placehold.co to generate on-the-fly images with proper aspect ratios
-    fg = "ffffff"
-    bg = "111827"  # slate-900
-    caption = text[:80].replace(" ", "+")
-    return f"https://placehold.co/{width}x{height}/{bg}/{fg}.png?text={caption}"
+def _ai_image(width: int, height: int, prompt: str) -> str:
+    """
+    Generate an image URL via Pollinations AI (no API key required).
+    This returns a hosted image generated from the prompt at the specified size.
+    """
+    qp = quote_plus(prompt[:300])
+    return (
+        f"https://image.pollinations.ai/prompt/{qp}?width={width}&height={height}&nologo=true"
+    )
 
 
 def generate_posts(idea: str, tone: str) -> Dict[str, PlatformPost]:
@@ -138,6 +142,13 @@ def generate_posts(idea: str, tone: str) -> Dict[str, PlatformPost]:
         "urgent": "Don't sleep on this:",
     }[tone]
 
+    # Shared style cues for imagery
+    visual_style = {
+        "professional": "clean minimalist corporate, bold typography, soft gradients, high contrast",
+        "witty": "playful vibrant, 3D icons, colorful gradients, dynamic composition, stickers",
+        "urgent": "bold red accents, high contrast, motion blur, impactful headline graphic",
+    }[tone]
+
     # LinkedIn (long-form)
     li_width, li_height = 1200, 627  # 1.91:1
     li_paragraphs = [
@@ -149,20 +160,32 @@ def generate_posts(idea: str, tone: str) -> Dict[str, PlatformPost]:
         "Curious to dive deeper? Let's connect.",
     ]
     li_text = "\n\n".join(li_paragraphs)
-    li_img = _placehold(li_width, li_height, "LinkedIn Visual")
+    li_prompt = (
+        f"LinkedIn banner, {visual_style}, topic: {idea_clean}, icons for {', '.join(keywords)}, "
+        f"branding-friendly, vector style, centered composition"
+    )
+    li_img = _ai_image(li_width, li_height, li_prompt)
 
     # Twitter/X (short & punchy)
     tw_width, tw_height = 1200, 675  # 16:9
     punchy = f"{idea_clean} → Make it real. {('' if tone!='witty' else '😉 ')}#buildinpublic"
     tw_text = punchy[:275]
-    tw_img = _placehold(tw_width, tw_height, "X Visual")
+    tw_prompt = (
+        f"Twitter/X social card, {visual_style}, topic: {idea_clean}, high readability, "
+        f"strong focal point, modern UI motif"
+    )
+    tw_img = _ai_image(tw_width, tw_height, tw_prompt)
 
     # Instagram (visual + hashtags)
     ig_width, ig_height = 1080, 1350  # 4:5 portrait
     ig_caption_core = _apply_tone(idea_clean, tone)
     ig_tags = _hashtagify([*keywords, tone, "socialmedia", "content", "brand"])
     ig_text = f"{ig_caption_core}\n\n{ig_tags}"
-    ig_img = _placehold(ig_width, ig_height, "Instagram Visual")
+    ig_prompt = (
+        f"Instagram portrait poster, {visual_style}, topic: {idea_clean}, editorial design, "
+        f"eye-catching, aesthetic photography + graphic overlay"
+    )
+    ig_img = _ai_image(ig_width, ig_height, ig_prompt)
 
     return {
         "linkedin": PlatformPost(text=li_text, image_url=li_img, width=li_width, height=li_height, platform="linkedin"),
